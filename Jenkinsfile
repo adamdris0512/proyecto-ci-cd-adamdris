@@ -5,7 +5,7 @@ pipeline {
         DOCKER_USER = 'adamsh04'
         IMAGE_NAME = 'python-app'
         DOCKER_CREDS_ID = 'dockerhub-creds'
-        // Forzamos a kubectl a usar la configuración de la carpeta de Jenkins
+        // Ruta a la configuración de Kubernetes para el usuario Jenkins
         KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
@@ -18,6 +18,7 @@ pipeline {
 
         stage('Test') {
             steps {
+                // Instalamos dependencias y ejecutamos los tests de Python
                 sh 'pip install flask pytest --break-system-packages'
                 sh 'python3 -m pytest test_app.py'
             }
@@ -25,14 +26,16 @@ pipeline {
 
         stage('Build Image') {
             steps {
+                // Construcción de la imagen Docker
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest ."
             }
         }
 
         stage('DockerHub') {
             steps {
-                withCredentials([string(credentialsId: "${DOCKER_CREDS_ID}", variable: 'DOCKER_PASS')]) {
-                    sh "echo \$DOCKER_PASS | docker login -u ${DOCKER_USER} --password-stdin"
+                // Corregido: Usamos usernamePassword para que coincida con tu credencial de Jenkins
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh "echo \$PASS | docker login -u \$USER --password-stdin"
                     sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:latest"
                 }
             }
@@ -40,7 +43,7 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                // Usamos --validate=false por si hay problemas de conexión con la API de validación
+                // Despliegue en Minikube usando la configuración de Jenkins
                 sh "kubectl apply -f deployment.yaml --validate=false"
                 sh "kubectl apply -f service.yaml --validate=false"
                 sh "kubectl rollout restart deployment/${IMAGE_NAME}"
@@ -50,10 +53,10 @@ pipeline {
 
     post {
         success {
-            echo '¡Pipeline completado con éxito! La aplicación está desplegada.'
+            echo '¡Éxito! Aplicación desplegada en Kubernetes.'
         }
         failure {
-            echo 'El Pipeline ha fallado. Revisa los logs de la etapa correspondiente.'
+            echo 'Algo ha fallado. Revisa los logs de la etapa anterior.'
         }
     }
 }
