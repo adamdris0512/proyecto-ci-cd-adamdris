@@ -2,10 +2,11 @@ pipeline {
     agent any
 
     environment {
-        // AQUÍ ESTÁ EL CAMBIO: Usamos tu usuario de Docker
-        DOCKER_USER = 'adamsh04' 
+        DOCKER_USER = 'adamsh04'
         IMAGE_NAME = 'python-app'
         DOCKER_CREDS_ID = 'dockerhub-creds'
+        // Forzamos a kubectl a usar la configuración de la carpeta de Jenkins
+        KUBECONFIG = '/var/lib/jenkins/.kube/config'
     }
 
     stages {
@@ -24,16 +25,14 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                // Ahora la imagen se llamará adamsh04/python-app
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest ."
             }
         }
 
         stage('DockerHub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS_ID}", passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER_ENV')]) {
-                    sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER_ENV --password-stdin"
-                    // Aquí es donde fallaba antes, ahora usará adamsh04
+                withCredentials([string(credentialsId: "${DOCKER_CREDS_ID}", variable: 'DOCKER_PASS')]) {
+                    sh "echo \$DOCKER_PASS | docker login -u ${DOCKER_USER} --password-stdin"
                     sh "docker push ${DOCKER_USER}/${IMAGE_NAME}:latest"
                 }
             }
@@ -41,10 +40,20 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh "kubectl apply -f deployment.yaml"
-                sh "kubectl apply -f service.yaml"
+                // Usamos --validate=false por si hay problemas de conexión con la API de validación
+                sh "kubectl apply -f deployment.yaml --validate=false"
+                sh "kubectl apply -f service.yaml --validate=false"
                 sh "kubectl rollout restart deployment/${IMAGE_NAME}"
             }
+        }
+    }
+
+    post {
+        success {
+            echo '¡Pipeline completado con éxito! La aplicación está desplegada.'
+        }
+        failure {
+            echo 'El Pipeline ha fallado. Revisa los logs de la etapa correspondiente.'
         }
     }
 }
